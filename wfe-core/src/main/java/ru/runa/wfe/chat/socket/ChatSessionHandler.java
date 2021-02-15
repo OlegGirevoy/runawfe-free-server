@@ -22,7 +22,7 @@ import ru.runa.wfe.user.User;
 @CommonsLog
 @Component
 public class ChatSessionHandler {
-    private final ConcurrentHashMap<Long, Set<SessionInfo>> sessions = new ConcurrentHashMap<>(256);
+    private final ConcurrentHashMap<Long, Session> sessions = new ConcurrentHashMap<>(256);
     private final MessageSender messageSender;
     private final ObjectMapper chatObjectMapper;
 
@@ -37,40 +37,30 @@ public class ChatSessionHandler {
         log.warn("addSession method, session ID = " + session.getId());
         User user = ChatSessionUtils.getUser(session);
         Long userId = user.getActor().getId();
+        Session replacedSession = sessions.replace(userId, session);
 
-        if (sessions.get(userId) == null) {
-            log.warn("addSession method. If statement - sessions.get(userId) = null");
-            Set<SessionInfo> sessionsSet = Collections.newSetFromMap(new ConcurrentHashMap<SessionInfo, Boolean>());
-            SessionInfo sessionInfo = new SessionInfo(session);
-            sessionsSet.add(sessionInfo);
-            sessions.put(userId, sessionsSet);
+        if (replacedSession != null) {
+            log.warn("addSession method, if statement, replace/close session");
+            try {
+                CloseReason closeReason = new CloseReason(CloseReason.CloseCodes.CLOSED_ABNORMALLY,
+                        "Replace " + user.getName() + "'s session");
+                replacedSession.close(closeReason);
+            } catch (IOException e) {
+                log.error("An error occurred while closing " + user.getName() + "'s session");
+            }
+            log.warn("Replace " + user.getName() + "'s session");
         } else {
-            log.warn("addSession method. If statement - sessions.get(userId) != null");
-            Set<SessionInfo> sessionsSet = sessions.get(userId);
-            sessionsSet.add(new SessionInfo(session));
-            log.warn("addSession method. If statement - sessions.get(userId) != null. sessions: " + sessions);
+            log.warn("addSession method, if statement, replacedSession = null");
+            sessions.put(userId, session);
         }
 
-//        Session replacedSession = sessions.replace(userId, session);
-//
-//        if (replacedSession != null) {
-//            try {
-//                CloseReason closeReason = new CloseReason(CloseReason.CloseCodes.CLOSED_ABNORMALLY,
-//                        "Replace " + user.getName() + "'s session");
-//                replacedSession.close(closeReason);
-//            } catch (IOException e) {
-//                log.error("An error occurred while closing " + user.getName() + "'s session");
-//            }
-//            log.warn("Replace " + user.getName() + "'s session");
-//        } else {
-//            sessions.put(userId, session);
-//        }
+        log.warn("addSession method, sessions: " + sessions);
     }
 
     public void removeSession(Session session) {
         log.warn("removeSession method");
-//        Long userId = ChatSessionUtils.getUser(session).getActor().getId();
-//        sessions.remove(userId, session);
+        Long userId = ChatSessionUtils.getUser(session).getActor().getId();
+        sessions.remove(userId, session);
     }
 
     public void sendToSession(Session session, String message) throws IOException {
@@ -86,9 +76,7 @@ public class ChatSessionHandler {
     public void sendMessage(Collection<Long> recipientIds, MessageBroadcast dto) throws IOException {
         log.warn("sendMessage(Collection<Long> recipientIds, MessageBroadcast dto) method");
         for (Long id : recipientIds) {
-//            Set<SessionInfo> sessionsSet = sessions.get(id);
-//            sessionsSet.stream().filter(data -> Objects.equals(data, "Tim")).findFirst().get();
-//            messageSender.handleMessage(dto, Optional.ofNullable(sessions.get(id).));
+            messageSender.handleMessage(dto, Optional.ofNullable(sessions.get(id)));
         }
     }
 
